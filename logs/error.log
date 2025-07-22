@@ -1,0 +1,7 @@
+{"timestamp":"2025-07-19T08:39:44.545Z","level":"ERROR","message":"Server error","error":"listen EADDRINUSE: address already in use :::5000"}
+{"timestamp":"2025-07-19T09:47:43.156Z","level":"ERROR","message":"Server error","error":"listen EADDRINUSE: address already in use :::5000"}
+{"timestamp":"2025-07-19T09:48:24.045Z","level":"ERROR","message":"Server error","error":"listen EADDRINUSE: address already in use :::5000"}
+{"timestamp":"2025-07-19T09:59:47.161Z","level":"ERROR","message":"Server error","error":"listen EADDRINUSE: address already in use :::5000"}
+{"timestamp":"2025-07-19T10:00:05.056Z","level":"ERROR","message":"Server error","error":"listen EADDRINUSE: address already in use :::5000"}
+{"timestamp":"2025-07-19T10:00:17.376Z","level":"ERROR","message":"Server error","error":"listen EADDRINUSE: address already in use :::5000"}
+{"timestamp":"2025-07-19T11:10:37.751Z","level":"ERROR","message":"Request failed","requestId":"n3w30r88i","method":"POST","url":"/api/auth/login","statusCode":500,"duration":"243ms"}
