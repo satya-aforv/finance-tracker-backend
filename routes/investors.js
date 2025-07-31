@@ -384,6 +384,10 @@ router.post(
       .optional()
       .isISO8601()
       .withMessage("Invalid date format"),
+    body("investment.customPlan.disbursementDate")
+      .optional()
+      .isISO8601()
+      .withMessage("Invalid date format"),
     body("investment.customPlan.principalSettlement")
       .optional()
       .isIn(["fixedTenure", "flexibleWithdrawal"])
@@ -561,6 +565,7 @@ router.post(
             isActive: true,
             paymentType,
             features,
+            disbursementDate: investment.customPlan?.disbursementDate,
             riskLevel: investment.customPlan.riskLevel,
             ...(paymentType === "interest"
               ? {
