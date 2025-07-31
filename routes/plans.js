@@ -24,7 +24,7 @@ router.get(
       .isInt({ min: 1, max: 100 })
       .withMessage("Limit must be between 1 and 100"),
     query("search").optional().trim(),
-    query("isActive").optional().isBoolean(),
+    query("isActive").optional().isBoolean().toBoolean(),
     query("paymentType").optional().isIn(["interest", "interestWithPrincipal"]),
     query("interestType").optional().isIn(["flat", "reducing"]),
   ],
@@ -40,13 +40,20 @@ router.get(
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
-    const search = req.query.search;
-    const isActive = req.query.isActive;
-    const paymentType = req.query.paymentType;
-    const interestType = req.query.interestType;
 
-    // Build query
-    let query = {};
+    const {
+      search,
+      isActive,
+      paymentType,
+      interestType,
+      minTenure,
+      maxTenure,
+      minInvestment,
+      maxInvestment,
+      riskLevel,
+    } = req.query;
+
+    const query = {};
 
     if (search) {
       query.$or = [
@@ -57,7 +64,7 @@ router.get(
     }
 
     if (isActive !== undefined) {
-      query.isActive = isActive === "true";
+      query.isActive = isActive;
     }
 
     if (paymentType) {
@@ -68,12 +75,35 @@ router.get(
       query.interestType = interestType;
     }
 
+    if (minTenure || maxTenure) {
+      const tenure = {};
+      if (minTenure) tenure.$gte = Number(minTenure);
+      if (maxTenure) tenure.$lte = Number(maxTenure);
+      if (Object.keys(tenure).length > 0) {
+        query.tenure = tenure;
+      }
+    }
+
+    if (minInvestment || maxInvestment) {
+      const investmentAmount = {};
+      if (minInvestment) investmentAmount.$gte = Number(minInvestment);
+      if (maxInvestment) investmentAmount.$lte = Number(maxInvestment);
+      if (Object.keys(investmentAmount).length > 0) {
+        query.investmentAmount = investmentAmount;
+      }
+    }
+
+    if (riskLevel) {
+      query.riskLevel = riskLevel;
+    }
+
     const [plans, total] = await Promise.all([
       Plan.find(query)
         .populate("createdBy", "name email")
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       Plan.countDocuments(query),
     ]);
 

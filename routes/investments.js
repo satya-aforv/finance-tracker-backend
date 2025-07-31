@@ -36,67 +36,154 @@ router.get(
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      return res.status(400).json({
-        message: "Validation failed",
-        errors: errors.array(),
+      return res
+        .status(400)
+        .json({ message: "Validation failed", errors: errors.array() });
+    }
+
+    let {
+      page = 1,
+      limit = 10,
+      search,
+      status,
+      paymentType,
+      investor,
+      plan,
+      investmentId,
+      createdDate,
+      maturityDate,
+      investorName,
+      planName,
+      rateType,
+      investmentMin,
+      investmentMax,
+      expectedReturnMin,
+      expectedReturnMax,
+      progressMin,
+      progressMax,
+      durationMin,
+      durationMax,
+    } = req.query;
+
+    page = parseInt(page);
+    limit = parseInt(limit);
+    const skip = (page - 1) * limit;
+
+    const matchStage = {};
+
+    // Handle role-based investor filter
+    if (req.user.role === "investor") {
+      const investorDoc = await Investor.findOne({
+        userId: req.user._id,
+      }).select("_id");
+      matchStage.investor = investorDoc?._id || null;
+    } else if (investor) {
+      matchStage.investor = investor;
+    }
+
+    if (plan) matchStage.plan = plan;
+    if (paymentType) matchStage.paymentType = paymentType;
+    if (status) matchStage.status = status;
+    if (rateType) matchStage.interestType = rateType;
+    if (investmentId)
+      matchStage.investmentId = { $regex: investmentId, $options: "i" };
+    if (createdDate)
+      matchStage.investmentDate = { $gte: new Date(createdDate) };
+    if (maturityDate)
+      matchStage.maturityDate = { $lte: new Date(maturityDate) };
+
+    if (investmentMin || investmentMax) {
+      matchStage.principalAmount = {};
+      if (investmentMin)
+        matchStage.principalAmount.$gte = Number(investmentMin);
+      if (investmentMax)
+        matchStage.principalAmount.$lte = Number(investmentMax);
+    }
+
+    if (expectedReturnMin || expectedReturnMax) {
+      matchStage.totalExpectedReturns = {};
+      if (expectedReturnMin)
+        matchStage.totalExpectedReturns.$gte = Number(expectedReturnMin);
+      if (expectedReturnMax)
+        matchStage.totalExpectedReturns.$lte = Number(expectedReturnMax);
+    }
+
+    if (progressMin || progressMax) {
+      matchStage.progress = {};
+      if (progressMin) matchStage.progress.$gte = Number(progressMin);
+      if (progressMax) matchStage.progress.$lte = Number(progressMax);
+    }
+
+    if (durationMin || durationMax) {
+      matchStage.tenure = {};
+      if (durationMin) matchStage.tenure.$gte = Number(durationMin);
+      if (durationMax) matchStage.tenure.$lte = Number(durationMax);
+    }
+
+    // Start building aggregation pipeline
+    const pipeline = [{ $match: matchStage }];
+
+    // Lookup investor
+    pipeline.push({
+      $lookup: {
+        from: "investors",
+        localField: "investor",
+        foreignField: "_id",
+        as: "investor",
+      },
+    });
+    pipeline.push({ $unwind: "$investor" });
+
+    // Lookup plan
+    pipeline.push({
+      $lookup: {
+        from: "plans",
+        localField: "plan",
+        foreignField: "_id",
+        as: "plan",
+      },
+    });
+    pipeline.push({ $unwind: "$plan" });
+
+    // Apply text search
+    if (search) {
+      pipeline.push({
+        $match: {
+          $or: [
+            { investmentId: { $regex: search, $options: "i" } },
+            { "investor.name": { $regex: search, $options: "i" } },
+            { "plan.name": { $regex: search, $options: "i" } },
+          ],
+        },
       });
     }
 
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-    const search = req.query.search;
-    const status = req.query.status;
-    const paymentType = req.query.paymentType;
-    const investorId = req.query.investor;
-    const planId = req.query.plan;
-
-    // Build query
-    let query = {};
-
-    if (search) {
-      query.$or = [{ investmentId: { $regex: search, $options: "i" } }];
+    if (investorName) {
+      pipeline.push({
+        $match: { "investor.name": { $regex: investorName, $options: "i" } },
+      });
     }
 
-    if (status) {
-      query.status = status;
+    if (planName) {
+      pipeline.push({
+        $match: { "plan.name": { $regex: planName, $options: "i" } },
+      });
     }
 
-    if (paymentType) {
-      query.paymentType = paymentType;
-    }
+    // Paginate
+    pipeline.push({ $sort: { createdAt: -1 } });
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
 
-    if (investorId) {
-      query.investor = investorId;
-    }
+    // Clone pipeline for total count before pagination
+    const countPipeline = [...pipeline.slice(0, -3), { $count: "total" }];
 
-    if (planId) {
-      query.plan = planId;
-    }
-
-    // If user is investor role, only show their investments
-    if (req.user.role === "investor") {
-      const investor = await Investor.findOne({ userId: req.user._id });
-      if (investor) {
-        query.investor = investor._id;
-      } else {
-        query.investor = null; // No investments if no investor profile
-      }
-    }
-
-    const [investments, total] = await Promise.all([
-      Investment.find(query)
-        .populate("investor", "investorId name email phone")
-        .populate(
-          "plan",
-          "planId name paymentType interestType interestRate tenure"
-        )
-        .populate("createdBy", "name email")
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit),
-      Investment.countDocuments(query),
+    const [investments, totalResult] = await Promise.all([
+      Investment.aggregate(pipeline),
+      Investment.aggregate(countPipeline),
     ]);
+
+    const total = totalResult[0]?.total || 0;
 
     res.json({
       success: true,

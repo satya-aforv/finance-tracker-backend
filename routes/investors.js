@@ -58,64 +58,82 @@ router.get(
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
-    const search = req.query.search;
-    const status = req.query.status;
-    const city = req.query.city;
-    const kycStatus = req.query.kycStatus;
-    const contact = req.query.contact;
-    const investmentMin = req.query.investmentMin;
-    const investmentMax = req.query.investmentMax;
-    const hasUserAccount = req.query.hasUserAccount;
 
-    // Build query
-    let query = {};
+    const { search, status, city, kycStatus, contact, hasUserAccount } =
+      req.query;
+
+    const investmentMin = !isNaN(req.query.investmentMin)
+      ? Number(req.query.investmentMin)
+      : undefined;
+    const investmentMax = !isNaN(req.query.investmentMax)
+      ? Number(req.query.investmentMax)
+      : undefined;
+    const hasAccount =
+      hasUserAccount === "true"
+        ? true
+        : hasUserAccount === "false"
+        ? false
+        : undefined;
+
+    const query = {};
+    const orConditions = [];
 
     if (city) {
       query["address.present.city"] = city;
     }
+
     if (kycStatus) {
       query["kyc.verificationStatus"] = kycStatus;
-    }
-
-    if (contact) {
-      query.$or = [
-        { email: { $regex: contact, $options: "i" } },
-        { phone: { $regex: contact, $options: "i" } },
-      ];
-    }
-
-    if (hasUserAccount === "true") {
-      query.userId = { $ne: null };
-    } else if (hasUserAccount === "false") {
-      query.userId = null;
-    }
-
-    if (investmentMin || investmentMax) {
-      query.totalInvestment = {};
-      if (investmentMin) query.totalInvestment.$gte = Number(investmentMin);
-      if (investmentMax) query.totalInvestment.$lte = Number(investmentMax);
-    }
-
-    if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: "i" } },
-        { email: { $regex: search, $options: "i" } },
-        { investorId: { $regex: search, $options: "i" } },
-        { phone: { $regex: search, $options: "i" } },
-      ];
     }
 
     if (status) {
       query.status = status;
     }
 
+    if (hasAccount === true) {
+      query.userId = { $ne: null };
+    } else if (hasAccount === false) {
+      query.userId = null;
+    }
+
+    if (investmentMin !== undefined || investmentMax !== undefined) {
+      query.totalInvestment = {};
+      if (investmentMin !== undefined)
+        query.totalInvestment.$gte = investmentMin;
+      if (investmentMax !== undefined)
+        query.totalInvestment.$lte = investmentMax;
+      if (Object.keys(query.totalInvestment).length === 0)
+        delete query.totalInvestment;
+    }
+
+    if (search) {
+      orConditions.push(
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { investorId: { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } }
+      );
+    }
+
+    if (contact) {
+      orConditions.push(
+        { email: { $regex: contact, $options: "i" } },
+        { phone: { $regex: contact, $options: "i" } }
+      );
+    }
+
+    if (orConditions.length > 0) {
+      query.$or = orConditions;
+    }
+
     const [investors, total] = await Promise.all([
       Investor.find(query)
         .populate("createdBy", "name email")
-        .populate("userId", "name email isActive lastLogin") // Populate user info
+        .populate("userId", "name email isActive lastLogin")
         .sort({ createdAt: -1 })
         .skip(skip)
-        .limit(limit),
+        .limit(limit)
+        .lean(),
       Investor.countDocuments(query),
     ]);
 
