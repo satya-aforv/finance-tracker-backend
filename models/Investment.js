@@ -281,15 +281,23 @@ const investmentSchema = new mongoose.Schema(
           type: Boolean,
           default: false,
         },
-        principalRequestDate: {
+        paymentType: {
+          type: String,
+          enum: ["full", "partial"],
+        },
+        requestedDisbursementDate: {
           type: Date,
           default: null,
         },
-        principalRequestAmount: {
+        requestedAmount: {
           type: Number,
           default: 0,
         },
-        principalRequestNotes: [RemarksSchema],
+        status: {
+          type: String,
+          enum: ["pending", "approved", "rejected"],
+        },
+        remarks: [RemarksSchema],
       },
     ],
 
