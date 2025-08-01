@@ -1,6 +1,6 @@
 // backend/routes/investments.js - Corrected Investment Routes matching your models
 import express from "express";
-import { body, validationResult, query } from "express-validator";
+import { body, validationResult, query, param } from "express-validator";
 import Investment from "../models/Investment.js";
 import Investor from "../models/Investor.js";
 import Plan from "../models/Plan.js";
@@ -1010,6 +1010,201 @@ router.get(
       })),
     });
   })
+);
+
+// @route   PUT /api/investments/update-specific-schedules-comments
+// @desc    Update specific schedules with comments
+// @access  Private
+router.put(
+  "/:id/:scheduleId/update-specific-schedules-comments",
+  authenticate,
+  [
+    param("id").isMongoId().withMessage("Invalid investment ID"),
+    param("scheduleId").isMongoId().withMessage("Invalid schedule ID"),
+    body("content").isString().notEmpty().withMessage("Content is required"),
+    body("type")
+      .isIn(["note_added", "communication", "status_changed", "other"])
+      .withMessage("Invalid remark type"),
+    body("attachments").optional().isArray(),
+    body("attachments.*.name").optional().isString(),
+    body("attachments.*.url").optional().isURL(),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { id, scheduleId } = req.params;
+      const { content, type, attachments } = req.body;
+      const { _id: userId, name: userName } = req.user;
+
+      // Create remark with optional attachments
+      const remark = {
+        _id: new mongoose.Types.ObjectId(),
+        userId,
+        userName,
+        content,
+        type,
+        date: new Date(),
+        replies: [],
+        ...(attachments && {
+          attachments: attachments.map((attachment) => ({
+            _id: new mongoose.Types.ObjectId(),
+            name: attachment.name,
+            url: attachment.url,
+            uploadedBy: userId,
+            uploadDate: new Date(),
+          })),
+        }),
+      };
+
+      // Update investment
+      const result = await Investment.findOneAndUpdate(
+        { _id: id, "schedule._id": scheduleId },
+        {
+          $push: {
+            "schedule.$.comments": remark,
+            timeline: {
+              type: "remark_added",
+              description: `New ${type} remark added`,
+              performedBy: userId,
+              date: new Date(),
+              metadata: {
+                remarkId: remark._id,
+                scheduleId,
+              },
+            },
+          },
+        },
+        { new: true }
+      );
+
+      if (!result) {
+        return res.status(404).json({
+          success: false,
+          message: "Investment or schedule not found",
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        data: {
+          remark,
+          scheduleId,
+          investmentId: id,
+        },
+      });
+    } catch (error) {
+      console.error("Error adding remark:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to add remark",
+        error: error.message,
+      });
+    }
+  }
+);
+
+// @route   PUT /api/investments/update-specific-schedules-comments
+// @desc    Update specific schedules with comments
+// @access  Private
+router.put(
+  "/:id/:scheduleId/:remarkId/reply-comments",
+  authenticate,
+  [
+    param("id").isMongoId().withMessage("Invalid investment ID"),
+    param("scheduleId").isMongoId().withMessage("Invalid schedule ID"),
+    param("remarkId").isMongoId().withMessage("Invalid remark ID"),
+    body("content").isString().notEmpty().withMessage("Content is required"),
+    body("attachments").optional().isArray(),
+    body("attachments.*.name").optional().isString(),
+    body("attachments.*.url").optional().isURL(),
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      const { id, scheduleId, remarkId } = req.params;
+      const { content, attachments } = req.body;
+      const { _id: userId, name: userName } = req.user;
+
+      // Create reply with optional attachments
+      const reply = {
+        _id: new mongoose.Types.ObjectId(),
+        userId,
+        userName,
+        content,
+        date: new Date(),
+        ...(attachments && {
+          attachments: attachments.map((attachment) => ({
+            _id: new mongoose.Types.ObjectId(),
+            name: attachment.name,
+            url: attachment.url,
+            uploadedBy: userId,
+            uploadDate: new Date(),
+          })),
+        }),
+      };
+
+      // Update investment
+      const result = await Investment.findOneAndUpdate(
+        {
+          _id: id,
+          "schedule._id": scheduleId,
+          "schedule.comments._id": remarkId,
+        },
+        {
+          $push: {
+            "schedule.$[s].comments.$[c].replies": reply,
+            timeline: {
+              type: "reply_added",
+              description: "Reply added to remark",
+              performedBy: userId,
+              date: new Date(),
+              metadata: {
+                remarkId,
+                replyId: reply._id,
+                scheduleId,
+              },
+            },
+          },
+        },
+        {
+          new: true,
+          arrayFilters: [{ "s._id": scheduleId }, { "c._id": remarkId }],
+        }
+      );
+
+      if (!result) {
+        return res.status(404).json({
+          success: false,
+          message: "Investment, schedule, or remark not found",
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        data: {
+          reply,
+          remarkId,
+          scheduleId,
+          investmentId: id,
+        },
+      });
+    } catch (error) {
+      console.error("Error adding reply:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to add reply",
+        error: error.message,
+      });
+    }
+  }
 );
 
 export default router;
