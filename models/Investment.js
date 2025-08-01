@@ -297,7 +297,7 @@ const investmentSchema = new mongoose.Schema(
           type: String,
           enum: ["pending", "approved", "rejected"],
         },
-        remarks: [RemarksSchema],
+        comments: [RemarksSchema],
       },
     ],
 

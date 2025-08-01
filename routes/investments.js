@@ -7,6 +7,7 @@ import Plan from "../models/Plan.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
 import { uploadMultiple, handleUploadError } from "../middleware/upload.js";
+import mongoose from "mongoose";
 
 const router = express.Router();
 
@@ -1107,102 +1108,184 @@ router.put(
   }
 );
 
-// @route   PUT /api/investments/update-specific-schedules-comments
-// @desc    Update specific schedules with comments
-// @access  Private
-router.put(
-  "/:id/:scheduleId/:remarkId/reply-comments",
+// @route   POST /api/investments/:id/principal-request
+// @desc    Create a principal disbursement request
+// @access  Private (Finance/Admin/Manager/Investor)
+router.post(
+  "/:id/principal-request",
   authenticate,
+  authorize("admin", "finance_manager", "investor"),
   [
-    param("id").isMongoId().withMessage("Invalid investment ID"),
-    param("scheduleId").isMongoId().withMessage("Invalid schedule ID"),
-    param("remarkId").isMongoId().withMessage("Invalid remark ID"),
-    body("content").isString().notEmpty().withMessage("Content is required"),
+    body("paymentType")
+      .isIn(["full", "partial"])
+      .withMessage("Payment type must be either full or partial"),
+    body("requestedDisbursementDate")
+      .isISO8601()
+      .toDate()
+      .withMessage("Valid disbursement date is required"),
+    body("requestedAmount")
+      .isFloat({ min: 1 })
+      .withMessage("Requested amount must be greater than 0"),
+    body("content").optional().isString().trim(),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty())
+      return res.status(400).json({ errors: errors.array() });
+
+    const { id } = req.params;
+    const { paymentType, requestedDisbursementDate, requestedAmount } =
+      req.body;
+
+    try {
+      const investment = await Investment.findById(id);
+      if (!investment)
+        return res.status(404).json({ message: "Investment not found" });
+
+      const principalRequest = {
+        _id: new mongoose.Types.ObjectId(),
+        principalRequestMade: true,
+        paymentType,
+        requestedDisbursementDate,
+        requestedAmount,
+        status: "pending",
+        remarks: [],
+      };
+
+      investment.principalRequest.push(principalRequest);
+      await investment.save();
+
+      res.status(201).json({ message: "Principal request added successfully" });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+
+// @route   POST /api/investments/:investmentId/principal-request/:requestId/remark
+// @desc    Add a remark to a specific principal request
+// @access  Private (Admin, Finance Manager, Investor)
+router.post(
+  "/:investmentId/principal-request/:requestId/remark",
+  authenticate,
+  authorize("admin", "finance_manager", "investor"),
+  [
+    body("content")
+      .notEmpty()
+      .withMessage("Content is required")
+      .isString()
+      .trim(),
     body("attachments").optional().isArray(),
     body("attachments.*.name").optional().isString(),
     body("attachments.*.url").optional().isURL(),
   ],
   async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty())
+      return res.status(400).json({ errors: errors.array() });
+
+    const { investmentId, requestId } = req.params;
+    const { content, attachments = [] } = req.body;
+
     try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ errors: errors.array() });
-      }
+      const investment = await Investment.findById(investmentId);
+      if (!investment)
+        return res.status(404).json({ message: "Investment not found" });
 
-      const { id, scheduleId, remarkId } = req.params;
-      const { content, attachments } = req.body;
-      const { _id: userId, name: userName } = req.user;
-
-      // Create reply with optional attachments
-      const reply = {
-        _id: new mongoose.Types.ObjectId(),
-        userId,
-        userName,
-        content,
-        date: new Date(),
-        ...(attachments && {
-          attachments: attachments.map((attachment) => ({
-            _id: new mongoose.Types.ObjectId(),
-            name: attachment.name,
-            url: attachment.url,
-            uploadedBy: userId,
-            uploadDate: new Date(),
-          })),
-        }),
-      };
-
-      // Update investment
-      const result = await Investment.findOneAndUpdate(
-        {
-          _id: id,
-          "schedule._id": scheduleId,
-          "schedule.comments._id": remarkId,
-        },
-        {
-          $push: {
-            "schedule.$[s].comments.$[c].replies": reply,
-            timeline: {
-              type: "reply_added",
-              description: "Reply added to remark",
-              performedBy: userId,
-              date: new Date(),
-              metadata: {
-                remarkId,
-                replyId: reply._id,
-                scheduleId,
-              },
-            },
-          },
-        },
-        {
-          new: true,
-          arrayFilters: [{ "s._id": scheduleId }, { "c._id": remarkId }],
-        }
+      // Find the principal request by _id
+      const principalRequest = investment.principalRequest.find(
+        (req) => req._id.toString() === requestId
       );
 
-      if (!result) {
-        return res.status(404).json({
-          success: false,
-          message: "Investment, schedule, or remark not found",
-        });
+      if (!principalRequest)
+        return res.status(404).json({ message: "Principal request not found" });
+
+      const remark = {
+        remarkId: new mongoose.Types.ObjectId().toString(),
+        userId: req.user._id,
+        userName: req.user.name,
+        userRole: req.user.role,
+        content,
+        date: new Date(),
+        attachments,
+      };
+
+      principalRequest.comments.push(remark);
+      await investment.save();
+
+      res.status(201).json({ message: "Remark added successfully", remark });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
+
+// @route   POST /api/investments/:investmentId/principal-request/:requestId/remark/:remarkId/reply
+// @desc    Add a reply to a specific remark in a principal request
+// @access  Private (Admin, Finance Manager, Investor)
+router.post(
+  "/:investmentId/principal-request/:requestId/remark/:remarkId/reply",
+  authenticate,
+  authorize("admin", "finance_manager", "investor"),
+  [
+    body("content").notEmpty().withMessage("Reply content is required"),
+    body("attachments").optional().isArray(),
+    body("attachments.*.name").optional().isString(),
+    body("attachments.*.url").optional().isURL(),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty())
+      return res.status(400).json({ errors: errors.array() });
+
+    const { investmentId, requestId, remarkId } = req.params;
+    const { content, attachments = [] } = req.body;
+
+    try {
+      const investment = await Investment.findById(investmentId);
+      if (!investment)
+        return res.status(404).json({ message: "Investment not found" });
+
+      console.log(investment.principalRequest, "investment.principalRequest");
+
+      if (!investment || !Array.isArray(investment.principalRequest)) {
+        return res
+          .status(400)
+          .json({ message: "Principal request list not found" });
       }
 
-      res.status(200).json({
-        success: true,
-        data: {
-          reply,
-          remarkId,
-          scheduleId,
-          investmentId: id,
-        },
-      });
-    } catch (error) {
-      console.error("Error adding reply:", error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to add reply",
-        error: error.message,
-      });
+      const principalRequest = investment.principalRequest.find(
+        (pr) => pr._id.toString() === requestId
+      );
+
+      if (!principalRequest) {
+        return res.status(404).json({ message: "Principal request not found" });
+      }
+      // Find remark by remarkId
+      const remark = principalRequest.comments.find(
+        (r) => r.remarkId == remarkId
+      );
+
+      if (!remark) return res.status(404).json({ message: "Remark not found" });
+
+      const reply = {
+        replyId: new mongoose.Types.ObjectId().toString(),
+        userId: req.user._id,
+        userName: req.user.name,
+        content,
+        date: new Date(),
+        attachments,
+      };
+
+      remark.replies.push(reply);
+      await investment.save();
+
+      res.status(201).json({ message: "Reply added successfully", reply });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ message: "Server error" });
     }
   }
 );
