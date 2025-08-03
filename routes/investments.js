@@ -469,12 +469,85 @@ router.put(
       return res.status(404).json({ message: "Investment not found" });
     }
 
-    const { status, notes } = req.body;
-    const oldStatus = investment.status;
+    const {
+      investor: newInvestorId,
+      plan: newPlanId,
+      principalAmount,
+      investmentDate,
+      notes,
+      status,
+    } = req.body;
 
+    const oldStatus = investment.status;
     // Update allowed fields
     if (status) investment.status = status;
     if (notes !== undefined) investment.notes = notes;
+    const oldPrincipal = investment.principalAmount;
+    const oldPlan = investment.plan.toString();
+    const oldInvestor = investment.investor.toString();
+
+    // Only fetch new investor/plan if changed
+    const investor =
+      newInvestorId && newInvestorId !== oldInvestor
+        ? await Investor.findById(newInvestorId)
+        : await Investor.findById(investment.investor);
+
+    if (!investor)
+      return res.status(404).json({ message: "Investor not found" });
+    if (investor.status !== "active")
+      return res
+        .status(400)
+        .json({ message: "Cannot update investment for inactive investor" });
+
+    const plan =
+      newPlanId && newPlanId !== oldPlan
+        ? await Plan.findById(newPlanId)
+        : await Plan.findById(investment.plan);
+
+    if (!plan) return res.status(404).json({ message: "Plan not found" });
+    if (!plan.isActive)
+      return res
+        .status(400)
+        .json({ message: "Cannot invest in inactive plan" });
+
+    const newPrincipal = principalAmount ?? investment.principalAmount;
+
+    if (
+      newPrincipal < plan.minInvestment ||
+      newPrincipal > plan.maxInvestment
+    ) {
+      return res.status(400).json({
+        message: `Investment amount must be between ₹${plan.minInvestment} and ₹${plan.maxInvestment}`,
+      });
+    }
+
+    const invDate = investmentDate
+      ? new Date(investmentDate)
+      : investment.investmentDate;
+    const maturityDate = new Date(invDate);
+    maturityDate.setMonth(maturityDate.getMonth() + plan.tenure);
+
+    const returns = plan.calculateExpectedReturns(newPrincipal);
+
+    // Update investment
+    investment.investor = newInvestorId || investment.investor;
+    investment.plan = newPlanId || investment.plan;
+    investment.principalAmount = newPrincipal;
+    investment.investmentDate = invDate;
+    investment.maturityDate = maturityDate;
+    investment.notes = notes ?? investment.notes;
+    investment.status = status ?? investment.status;
+
+    investment.interestRate = plan.interestRate;
+    investment.interestType = plan.interestType;
+    investment.tenure = plan.tenure;
+    investment.paymentType = plan.paymentType;
+
+    investment.totalExpectedReturns = returns.totalReturns;
+    investment.totalInterestExpected = returns.totalInterest;
+    investment.remainingAmount = returns.totalReturns;
+
+    investment.schedule = investment.generateSchedule();
 
     // Add timeline entry for status change
     if (status && status !== oldStatus) {
@@ -488,6 +561,34 @@ router.put(
     }
 
     await investment.save();
+
+    // Adjust investor stats if changed
+    if (newInvestorId && newInvestorId !== oldInvestor) {
+      await Investor.findByIdAndUpdate(oldInvestor, {
+        $inc: { totalInvestment: -oldPrincipal, activeInvestments: -1 },
+      });
+      await Investor.findByIdAndUpdate(newInvestorId, {
+        $inc: { totalInvestment: newPrincipal, activeInvestments: 1 },
+      });
+    } else if (newPrincipal !== oldPrincipal) {
+      await Investor.findByIdAndUpdate(investment.investor, {
+        $inc: { totalInvestment: newPrincipal - oldPrincipal },
+      });
+    }
+
+    // Adjust plan stats if changed
+    if (newPlanId && newPlanId !== oldPlan) {
+      await Plan.findByIdAndUpdate(oldPlan, {
+        $inc: { totalInvestment: -oldPrincipal, totalInvestors: -1 },
+      });
+      await Plan.findByIdAndUpdate(newPlanId, {
+        $inc: { totalInvestment: newPrincipal, totalInvestors: 1 },
+      });
+    } else if (newPrincipal !== oldPrincipal) {
+      await Plan.findByIdAndUpdate(investment.plan, {
+        $inc: { totalInvestment: newPrincipal - oldPrincipal },
+      });
+    }
 
     // Update investor statistics if status changed
     if (status && status !== oldStatus) {
