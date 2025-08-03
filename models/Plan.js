@@ -268,7 +268,7 @@ planSchema.methods.calculateInterestOnlyReturns = function (
 
   return {
     totalInterest: rounded(totalInterest),
-    totalReturns: rounded(Nimber(principalAmount) + Nimber(totalInterest)),
+    totalReturns: rounded(Number(principalAmount) + Number(totalInterest)),
     effectiveRate: rounded((totalInterest / principalAmount) * 100),
     paymentType: "interest",
   };
