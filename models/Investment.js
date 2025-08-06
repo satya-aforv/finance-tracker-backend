@@ -1,24 +1,20 @@
-// backend/models/Investment.js - Simplified Investment Model
 import mongoose from "mongoose";
 
-const replySchema = new mongoose.Schema(
-  {
-    replyId: { type: String, required: true, unique: true },
-    userId: { type: String, required: true },
-    userName: { type: String, required: true },
-    content: { type: String, required: true },
-    date: { type: Date, default: Date.now },
-    attachments: [
-      {
-        name: String,
-        url: String,
-      },
-    ],
-  },
-  { _id: false }
-);
+const replySchema = {
+  replyId: String,
+  userId: String,
+  userName: String,
+  content: String,
+  date: { type: Date, default: Date.now },
+  attachments: [
+    {
+      name: String,
+      url: String,
+    },
+  ],
+};
 
-const RemarksSchema = new mongoose.Schema({
+const RemarksSchema = {
   remarkId: String, // or ObjectId
   paymentId: String, // Reference to payment
   userId: String, // Reference to user who made the remark
@@ -32,10 +28,13 @@ const RemarksSchema = new mongoose.Schema({
       url: String,
     },
   ],
-  replies: [replySchema],
+  replies: {
+    type: [replySchema],
+    default: [],
+  },
   createdAt: Date,
   updatedAt: Date,
-});
+};
 const scheduleSchema = new mongoose.Schema({
   month: {
     type: Number,
@@ -80,7 +79,10 @@ const scheduleSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
-  comments: [RemarksSchema],
+  comments: {
+    type: [RemarksSchema],
+    default: [],
+  },
 });
 
 // Timeline/Activity Log Schema
@@ -174,6 +176,41 @@ const documentSchema = new mongoose.Schema({
   },
 });
 
+// Extantion Schema with categories
+const extantionSchema = new mongoose.Schema({
+  status: {
+    type: String,
+    enum: ["pending", "approved", "declined", "inreview"],
+    default: "pending",
+  },
+  extantionRequestDate: {
+    type: Date,
+    default: Date.now,
+  },
+  investmentTenure: {
+    type: Number,
+    default: 0,
+  },
+  requestedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: false,
+  },
+  createdAt: {
+    type: Date,
+    default: null,
+  },
+  updatedAt: {
+    type: Date,
+    default: null,
+  },
+});
+
 const investmentSchema = new mongoose.Schema(
   {
     investmentId: {
@@ -211,7 +248,10 @@ const investmentSchema = new mongoose.Schema(
       enum: ["active", "completed", "closed", "defaulted"],
       default: "active",
     },
-
+    requestedForExtantion: {
+      type: [extantionSchema],
+      default: [],
+    },
     // Financial Details (copied from plan for historical record)
     interestRate: {
       type: Number,
@@ -297,7 +337,10 @@ const investmentSchema = new mongoose.Schema(
           type: String,
           enum: ["pending", "approved", "rejected"],
         },
-        comments: [RemarksSchema],
+        comments: {
+          type: [RemarksSchema],
+          default: [],
+        },
       },
     ],
 
@@ -405,6 +448,7 @@ investmentSchema.methods.generateInterestSchedule = function (
       status: "pending",
       paidAmount: 0,
       paidDate: null,
+      comments: [],
     });
   }
 
@@ -448,6 +492,7 @@ investmentSchema.methods.generateInterestWithPrincipalSchedule = function (
       status: "pending",
       paidAmount: 0,
       paidDate: null,
+      comments: [],
     });
   }
 

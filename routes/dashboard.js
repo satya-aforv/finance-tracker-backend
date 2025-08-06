@@ -52,6 +52,86 @@ router.get(
   })
 );
 
+router.get(
+  "/overview/user",
+  authenticate,
+  authorize("admin", "finance_manager", "investor"),
+  asyncHandler(async (req, res) => {
+    const { _id } = req.user;
+
+    const investor = await Investor.findOne({ userId: _id }).select("_id");
+    if (!investor) {
+      return res.json({
+        success: true,
+        data: {
+          totalInvestments: 0,
+          activeInvestments: 0,
+          totalValue: 0,
+          totalOverdue: 0,
+          totalPaid: 0,
+        },
+      });
+    }
+
+    const investorId = investor._id;
+
+    const [
+      totalInvestments,
+      activeInvestments,
+      totalValueResult,
+      overduePaymentsCount,
+      totalPaidResult,
+    ] = await Promise.all([
+      // Count investments for this investor
+      Investment.countDocuments({ investor: investorId }),
+
+      // Count active investments
+      Investment.countDocuments({
+        investor: investorId,
+        status: "active",
+      }),
+
+      // Sum principal amounts
+      Investment.aggregate([
+        { $match: { investor: investorId } },
+        { $group: { _id: null, total: { $sum: "$principalAmount" } } },
+      ]),
+
+      // Count overdue payments
+      Investment.aggregate([
+        { $match: { investor: investorId, status: "active" } },
+        { $unwind: "$schedule" },
+        { $match: { "schedule.status": "overdue" } },
+        { $count: "count" },
+      ]),
+
+      // Sum paid amounts
+      Investment.aggregate([
+        { $match: { investor: investorId, status: "active" } },
+        { $unwind: "$schedule" },
+        { $match: { "schedule.status": "paid" } },
+        { $group: { _id: null, total: { $sum: "$schedule.amount" } } },
+      ]),
+    ]);
+
+    // Extract values
+    const totalValue = totalValueResult[0]?.total || 0;
+    const totalOverdue = overduePaymentsCount[0]?.count || 0;
+    const totalPaid = totalPaidResult[0]?.total || 0;
+
+    res.json({
+      success: true,
+      data: {
+        totalInvestments,
+        activeInvestments,
+        totalValue,
+        totalOverdue,
+        totalPaid,
+      },
+    });
+  })
+);
+
 // ================================
 // RECENT ACTIVITY
 // ================================

@@ -420,6 +420,113 @@ export const createInvestment = async (req, res) => {
   });
 };
 
+// @route   POST /api/investments/:id/extendInvestment
+// @desc    Calculate investment returns with specific plan
+// @access  Private (Admin, Finance Manager)
+router.post(
+  "/:id/extendInvestment",
+  authenticate,
+  authorize("investor"),
+  [
+    param("id").isMongoId().withMessage("Valid plan ID is required"),
+    body("extantionRequestDate")
+      .isISO8601()
+      .withMessage("Invalid investment date"),
+    body("investmentTenure")
+      .isFloat({ min: 1 })
+      .withMessage("Requested tenure must be greater than 0"),
+  ],
+  asyncHandler(async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        message: "Validation failed",
+        errors: errors.array(),
+      });
+    }
+    const { id } = req.params;
+    const { extantionRequestDate, investmentTenure } = req.body;
+    const { _id } = req.user;
+
+    const investment = await Investment.findById({ _id: id });
+
+    if (!investment) {
+      return res.status(404).json({ message: "Investment not found" });
+    }
+
+    const existingDate = new Date(investment?.investmentDate);
+    const requestedDate = new Date(extantionRequestDate);
+
+    const existingTime = existingDate.getTime();
+    const requestedTime = requestedDate.getTime();
+
+    // Check for invalid dates
+    if (isNaN(existingTime)) {
+      return res.status(400).json({ message: "Existing date is invalid" });
+    }
+    if (isNaN(requestedTime)) {
+      return res.status(400).json({ message: "Requested date is invalid" });
+    }
+
+    // Perform comparisons
+    if (existingTime === requestedTime) {
+      return res.status(400).json({
+        message: "Requested date cannot be the same as the existing date",
+      });
+    }
+
+    if (existingTime > requestedTime) {
+      return res.status(400).json({
+        message: "Requested date must be after the existing date",
+      });
+    }
+
+    const existingExtantionRequests = investment?.requestedForExtantion || [];
+
+    const existRequest = existingExtantionRequests.filter(
+      (ext) =>
+        ext.requestedBy.toString() == _id.toString() && ext?.status == "pending"
+    );
+
+    if (existRequest && existRequest?.length > 0) {
+      return res.status(404).json({
+        message:
+          "Request can not be duplicated, same request exist with pending state!",
+      });
+    }
+
+    const newReuquest = {
+      _id: new mongoose.Types.ObjectId(),
+      status: "pending",
+      extantionRequestDate,
+      investmentTenure,
+      requestedBy: _id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    existRequest.push(newReuquest);
+
+    try {
+      await Investment.findByIdAndUpdate(id, {
+        requestedForExtantion: existRequest,
+      });
+      const result = await Investment.findById({ _id: id });
+      res.json({
+        success: true,
+        data: result || null,
+        message: "Request raised successfully!",
+      });
+    } catch (error) {
+      res.json({
+        success: false,
+        data: null,
+        message: "Failed on raising a request!",
+      });
+    }
+  })
+);
+
 // @route   POST /api/investments
 // @desc    Create new investment
 // @access  Private (Admin, Finance Manager)
