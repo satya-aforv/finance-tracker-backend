@@ -5,6 +5,7 @@ import Plan from "../models/Plan.js";
 import Investment from "../models/Investment.js";
 import { authenticate, authorize } from "../middleware/auth.js";
 import { asyncHandler } from "../middleware/errorHandler.js";
+import User from "../models/User.js";
 
 const router = express.Router();
 
@@ -97,14 +98,17 @@ router.get(
       query.riskLevel = riskLevel;
     }
 
+    const adminUsers = await User.find({ role: "admin" }).select("_id");
+    const adminUserIds = adminUsers.map((user) => user._id);
+
     const [plans, total] = await Promise.all([
-      Plan.find(query)
+      Plan.find({ ...query, createdBy: { $in: adminUserIds } })
         .populate("createdBy", "name email")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      Plan.countDocuments(query),
+      Plan.countDocuments({ ...query, createdBy: { $in: adminUserIds } }),
     ]);
 
     res.json({
