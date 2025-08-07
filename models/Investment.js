@@ -180,12 +180,12 @@ const documentSchema = new mongoose.Schema({
 const extantionSchema = new mongoose.Schema({
   status: {
     type: String,
-    enum: ["pending", "approved", "declined", "inreview"],
-    default: "pending",
+    enum: ["Approved", "Declined", "Pending"],
+    default: "Pending",
   },
-  extantionRequestDate: {
-    type: Date,
-    default: Date.now,
+  extantionRequestTenure: {
+    type: Number,
+    default: 0,
   },
   investmentTenure: {
     type: Number,
@@ -194,7 +194,7 @@ const extantionSchema = new mongoose.Schema({
   requestedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
-    required: true,
+    required: false,
   },
   approvedBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -335,7 +335,16 @@ const investmentSchema = new mongoose.Schema(
         },
         status: {
           type: String,
-          enum: ["pending", "approved", "rejected"],
+          enum: ["Approved", "Declined", "Pending"],
+        },
+        approvedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: false,
+        },
+        approvedAt: {
+          type: Date,
+          default: null,
         },
         comments: {
           type: [RemarksSchema],

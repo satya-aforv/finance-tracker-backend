@@ -428,13 +428,13 @@ router.post(
   authenticate,
   authorize("investor"),
   [
-    param("id").isMongoId().withMessage("Valid plan ID is required"),
-    body("extantionRequestDate")
-      .isISO8601()
-      .withMessage("Invalid investment date"),
-    body("investmentTenure")
+    param("id").isMongoId().withMessage("Valid investment ID is required"),
+    body("extantionRequestTenure")
       .isFloat({ min: 1 })
       .withMessage("Requested tenure must be greater than 0"),
+    body("investmentTenure")
+      .isFloat({ min: 1 })
+      .withMessage("Existing tenure must be greater than 0"),
   ],
   asyncHandler(async (req, res) => {
     const errors = validationResult(req);
@@ -445,7 +445,7 @@ router.post(
       });
     }
     const { id } = req.params;
-    const { extantionRequestDate, investmentTenure } = req.body;
+    const { extantionRequestTenure, investmentTenure } = req.body;
     const { _id } = req.user;
 
     const investment = await Investment.findById({ _id: id });
@@ -454,30 +454,10 @@ router.post(
       return res.status(404).json({ message: "Investment not found" });
     }
 
-    const existingDate = new Date(investment?.investmentDate);
-    const requestedDate = new Date(extantionRequestDate);
-
-    const existingTime = existingDate.getTime();
-    const requestedTime = requestedDate.getTime();
-
-    // Check for invalid dates
-    if (isNaN(existingTime)) {
-      return res.status(400).json({ message: "Existing date is invalid" });
-    }
-    if (isNaN(requestedTime)) {
-      return res.status(400).json({ message: "Requested date is invalid" });
-    }
-
     // Perform comparisons
-    if (existingTime === requestedTime) {
+    if (extantionRequestTenure === investmentTenure) {
       return res.status(400).json({
-        message: "Requested date cannot be the same as the existing date",
-      });
-    }
-
-    if (existingTime > requestedTime) {
-      return res.status(400).json({
-        message: "Requested date must be after the existing date",
+        message: "Requested date cannot be the same as the existing tenure",
       });
     }
 
@@ -485,7 +465,9 @@ router.post(
 
     const existRequest = existingExtantionRequests.filter(
       (ext) =>
-        ext.requestedBy.toString() == _id.toString() && ext?.status == "pending"
+        ext?.requestedBy &&
+        ext?.requestedBy.toString() == _id.toString() &&
+        ext?.status == "Pending"
     );
 
     if (existRequest && existRequest?.length > 0) {
@@ -497,8 +479,8 @@ router.post(
 
     const newReuquest = {
       _id: new mongoose.Types.ObjectId(),
-      status: "pending",
-      extantionRequestDate,
+      status: "Pending",
+      extantionRequestTenure,
       investmentTenure,
       requestedBy: _id,
       createdAt: new Date(),
@@ -522,6 +504,230 @@ router.post(
         success: false,
         data: null,
         message: "Failed on raising a request!",
+      });
+    }
+  })
+);
+
+// @route   POST /api/investments/:id/updateRequest/:requestId
+// @desc    Calculate investment returns with specific plan
+// @access  Private (Admin, Finance Manager)
+router.post(
+  "/:id/updateRequest/:requestId",
+  authenticate,
+  authorize("admin"),
+  [
+    param("id").isMongoId().withMessage("Valid Investment ID is required"),
+    param("requestId")
+      .isMongoId()
+      .withMessage("Valid Requested ID is required"),
+    body("status").isIn(["Approved", "Declined", "Pending"]),
+  ],
+  asyncHandler(async (req, res) => {
+    // Validate request
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: errors.array(),
+      });
+    }
+
+    const { id, requestId } = req.params;
+    const { _id: userId } = req.user;
+    const { status } = req.body;
+
+    try {
+      // Find the investment
+      const investment = await Investment.findById(id);
+      if (!investment) {
+        return res.status(404).json({
+          success: false,
+          message: "Investment not found",
+        });
+      }
+
+      // Find the specific request
+      const requestIndex = investment.principalRequest.findIndex(
+        (req) => req._id.toString() === requestId
+      );
+
+      if (requestIndex === -1) {
+        return res.status(404).json({
+          success: false,
+          message: "Principal request not found",
+        });
+      }
+
+      const currentRequest = investment.principalRequest[requestIndex];
+
+      // Check if already processed
+      if (currentRequest.status === status) {
+        return res.status(400).json({
+          success: false,
+          message: `Request already ${currentRequest.status}`,
+        });
+      }
+
+      // Validate status
+      if (!["Approved", "Declined"].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid status. Must be 'Approved' or 'Declined'",
+        });
+      }
+
+      console.log(currentRequest, "currentRequest");
+      // Update the request
+      investment.principalRequest[requestIndex]["status"] = status;
+      investment.principalRequest[requestIndex]["approvedBy"] = userId;
+      investment.principalRequest[requestIndex]["approvedAt"] = new Date();
+      investment.principalRequest[requestIndex]["updatedAt"] = new Date();
+
+      // investment.principalAmount = currentRequest.requestedAmount;
+
+      // Add to timeline
+      investment.timeline.push({
+        type: "status_changed",
+        description: `Principal request ${status}`,
+        performedBy: userId,
+        metadata: {
+          requestId,
+          status,
+        },
+        date: new Date(),
+      });
+
+      // Save the updated investment
+      const updatedInvestment = await investment.save();
+
+      res.json({
+        success: true,
+        data: updatedInvestment,
+        message: `Principal request ${status} successfully!`,
+      });
+    } catch (error) {
+      console.error("Error processing principal request:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to process principal request",
+        error: error.message,
+      });
+    }
+  })
+);
+
+// @route   POST /api/investments/:id/updateExtendInvestmentRequest/:requestId
+// @desc    Calculate investment returns with specific plan
+// @access  Private (Admin, Finance Manager)
+router.post(
+  "/:id/updateExtendInvestmentRequest/:requestId",
+  authenticate,
+  authorize("admin"),
+  [
+    param("id").isMongoId().withMessage("Valid Investment ID is required"),
+    param("requestId")
+      .isMongoId()
+      .withMessage("Valid Requested ID is required"),
+    body("status").isIn(["Approved", "Declined", "Pending"]),
+  ],
+  asyncHandler(async (req, res) => {
+    // Validate request
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: errors.array(),
+      });
+    }
+
+    const { id, requestId } = req.params;
+    const { _id: userId } = req.user;
+    const { status } = req.body;
+
+    try {
+      // Find the investment
+      const investment = await Investment.findById(id);
+      if (!investment) {
+        return res.status(404).json({
+          success: false,
+          message: "Investment not found",
+        });
+      }
+
+      // Find the specific request
+      const requestIndex = investment.requestedForExtantion.findIndex(
+        (req) => req._id.toString() === requestId
+      );
+
+      if (requestIndex === -1) {
+        return res.status(404).json({
+          success: false,
+          message: "Investment extantion request not found",
+        });
+      }
+
+      const currentRequest = investment.requestedForExtantion[requestIndex];
+
+      // Check if already processed
+      if (currentRequest.status === status) {
+        return res.status(400).json({
+          success: false,
+          message: `Request already ${currentRequest.status}`,
+        });
+      }
+
+      // Validate status
+      if (!["Approved", "Declined"].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid status. Must be 'Approved' or 'Declined'",
+        });
+      }
+
+      // Update the request
+      investment.requestedForExtantion[requestIndex]["status"] = status;
+      investment.requestedForExtantion[requestIndex]["approvedAt"] = new Date();
+      investment.requestedForExtantion[requestIndex]["approvedBy"] = userId;
+      investment.requestedForExtantion[requestIndex]["updatedAt"] = new Date();
+      investment.requestedForExtantion[requestIndex]["updatedBy"] = userId;
+
+      investment.tenure = currentRequest.extantionRequestTenure;
+
+      const newDate = new Date(investment.investmentDate);
+      const monthsToAdd =
+        currentRequest.extantionRequestTenure || investment.tenure; // or any number you need
+      newDate.setMonth(newDate.getMonth() + monthsToAdd);
+
+      investment.investmentDate = newDate;
+      // Add to timeline
+      investment.timeline.push({
+        type: "status_changed",
+        description: `Investment extantion request ${status}`,
+        performedBy: userId,
+        metadata: {
+          requestId,
+          status,
+        },
+        date: new Date(),
+      });
+
+      // Save the updated investment
+      const updatedInvestment = await investment.save();
+
+      res.json({
+        success: true,
+        data: updatedInvestment,
+        message: `Existing investment request ${status} successfully!`,
+      });
+    } catch (error) {
+      console.error("Error processing existing investment request:", error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to process existing investment request",
+        error: error.message,
       });
     }
   })
@@ -1356,7 +1562,7 @@ router.post(
         paymentType,
         requestedDisbursementDate,
         requestedAmount,
-        status: "pending",
+        status: "Pending",
         remarks: [],
       };
 
