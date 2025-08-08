@@ -132,6 +132,35 @@ router.get(
   })
 );
 
+// @route   GET /api/plans/userSpecific
+// @desc    Get all plans with pagination and search
+// @access  Private
+router.get(
+  "/userSpecific",
+  authenticate,
+  asyncHandler(async (req, res) => {
+    const adminUsers = await User.find({ role: "admin" }).select("_id");
+    const adminUserIds = adminUsers.map((user) => user._id);
+    const plans = await Plan.find({
+      $or: [
+        { createdBy: req?.user?._id, planType: "custom", isActive: true },
+        {
+          planType: "admin",
+          isActive: true,
+          createdBy: { $in: adminUserIds },
+        },
+      ],
+    })
+      .select("-__v")
+      .sort({ name: 1 });
+
+    res.json({
+      success: true,
+      data: plans,
+    });
+  })
+);
+
 // @route   GET /api/plans/active
 // @desc    Get all active plans (for investment creation)
 // @access  Private
