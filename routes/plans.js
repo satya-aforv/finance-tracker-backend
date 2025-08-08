@@ -102,13 +102,21 @@ router.get(
     const adminUserIds = adminUsers.map((user) => user._id);
 
     const [plans, total] = await Promise.all([
-      Plan.find({ ...query, createdBy: { $in: adminUserIds } })
+      Plan.find({
+        ...query,
+        planType: "admin",
+        createdBy: { $in: adminUserIds },
+      })
         .populate("createdBy", "name email")
         .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean(),
-      Plan.countDocuments({ ...query, createdBy: { $in: adminUserIds } }),
+      Plan.countDocuments({
+        ...query,
+        planType: "admin",
+        createdBy: { $in: adminUserIds },
+      }),
     ]);
 
     res.json({
@@ -131,7 +139,7 @@ router.get(
   "/active",
   authenticate,
   asyncHandler(async (req, res) => {
-    const plans = await Plan.find({ isActive: true })
+    const plans = await Plan.find({ planType: "admin", isActive: true })
       .select("-__v")
       .sort({ name: 1 });
 
@@ -226,6 +234,7 @@ export const createPlan = async (req, res) => {
 
   const plan = await Plan.create({
     ...planData,
+    planType: planData.planType,
     createdBy: req.user._id,
   });
 
@@ -574,9 +583,12 @@ router.get(
       plansByPaymentType,
       mostPopularPlan,
     ] = await Promise.all([
-      Plan.countDocuments(),
-      Plan.countDocuments({ isActive: true }),
+      Plan.countDocuments({ planType: "admin" }),
+      Plan.countDocuments({ isActive: true, planType: "admin" }),
       Plan.aggregate([
+        {
+          $match: { planType: "admin" },
+        },
         {
           $group: {
             _id: "$interestType",
@@ -587,6 +599,9 @@ router.get(
       ]),
       Plan.aggregate([
         {
+          $match: { planType: "admin" },
+        },
+        {
           $group: {
             _id: "$paymentType",
             count: { $sum: 1 },
@@ -595,6 +610,9 @@ router.get(
         },
       ]),
       Plan.aggregate([
+        {
+          $match: { planType: "admin" },
+        },
         {
           $lookup: {
             from: "investments",

@@ -156,7 +156,7 @@ router.get(
 router.get(
   "/:id",
   authenticate,
-  authorize("admin", "finance_manager"),
+  authorize("admin", "finance_manager", "investor"),
   asyncHandler(async (req, res) => {
     const investor = await Investor.findById(req.params.id)
       .populate("createdBy", "name email")
@@ -197,6 +197,28 @@ router.get(
           count: 0,
         },
       },
+    });
+  })
+);
+
+// @route   GET /api/investors/:id/user
+// @desc    Get single investor
+// @access  Private (Admin, Finance Manager)
+router.get(
+  "/:id/user",
+  authenticate,
+  authorize("admin", "finance_manager", "investor"),
+  asyncHandler(async (req, res) => {
+    const investor = await Investor.find({ userId: req.params.id })
+      .populate("createdBy", "name email")
+      .populate("userId", "name email isActive lastLogin role");
+
+    if (!investor) {
+      return res.status(404).json({ message: "Investor not found" });
+    }
+    res.json({
+      success: true,
+      data: investor,
     });
   })
 );

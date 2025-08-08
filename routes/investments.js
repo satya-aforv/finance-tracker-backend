@@ -578,7 +578,10 @@ router.post(
         });
       }
 
-      console.log(currentRequest, "currentRequest");
+      if (status === "Approved") {
+        investment.principalAmount = currentRequest.requestedAmount;
+      }
+
       // Update the request
       investment.principalRequest[requestIndex]["status"] = status;
       investment.principalRequest[requestIndex]["approvedBy"] = userId;
@@ -702,6 +705,14 @@ router.post(
       newDate.setMonth(newDate.getMonth() + monthsToAdd);
 
       investment.investmentDate = newDate;
+      const newSchedule = investment.schedule.map((item) => {
+        return {
+          ...item,
+          dueDate: newDate,
+        };
+      });
+
+      investment.schedule = newSchedule;
       // Add to timeline
       investment.timeline.push({
         type: "status_changed",
@@ -1555,6 +1566,28 @@ router.post(
       const investment = await Investment.findById(id);
       if (!investment)
         return res.status(404).json({ message: "Investment not found" });
+
+      const plan = await Plan.findById(investment.plan);
+      if (!plan) {
+        return res.status(404).json({
+          success: false,
+          message: "Plan not found",
+        });
+      }
+
+      // if (plan && plan?.minInvestment > currentRequest.requestedAmount) {
+      //   return res.status(400).json({
+      //     success: false,
+      //     message: "Insufficient funds to approve the request",
+      //   });
+      // }
+
+      // if (plan && plan?.maxInvestment < currentRequest.requestedAmount) {
+      //   return res.status(400).json({
+      //     success: false,
+      //     message: "Maximum investment limit exceeded",
+      //   });
+      // }
 
       const principalRequest = {
         _id: new mongoose.Types.ObjectId(),

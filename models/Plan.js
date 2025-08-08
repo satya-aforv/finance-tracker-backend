@@ -193,6 +193,11 @@ const planSchema = new mongoose.Schema(
       default: 0,
       min: [0, "Total investment cannot be negative"],
     },
+    planType: {
+      type: String,
+      enum: ["custom", "admin"],
+      default: "admin",
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
