@@ -487,7 +487,7 @@ router.post(
       updatedAt: new Date(),
     };
 
-    existRequest.push(newReuquest);
+    existRequest.push(...existingExtantionRequests, newReuquest);
 
     try {
       await Investment.findByIdAndUpdate(id, {
@@ -705,14 +705,18 @@ router.post(
       newDate.setMonth(newDate.getMonth() + monthsToAdd);
 
       investment.investmentDate = newDate;
-      const newSchedule = investment.schedule.map((item) => {
-        return {
-          ...item,
-          dueDate: newDate,
-        };
-      });
+      investment.schedule = investment.generateSchedule(
+        newDate,
+        currentRequest.extantionRequestTenure
+      );
+      // const newSchedule = investment.schedule.map((item) => {
+      //   return {
+      //     ...item,
+      //     dueDate: newDate,
+      //   };
+      // });
 
-      investment.schedule = newSchedule;
+      // investment.schedule = newSchedule;
       // Add to timeline
       investment.timeline.push({
         type: "status_changed",

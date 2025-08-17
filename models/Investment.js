@@ -406,28 +406,41 @@ investmentSchema.pre("save", async function (next) {
 });
 
 // Generate payment schedule based on plan configuration
-investmentSchema.methods.generateSchedule = function () {
+investmentSchema.methods.generateSchedule = function (
+  investmentDate = null,
+  requestedTenure = null
+) {
   const schedule = [];
   let remainingPrincipal = this.principalAmount;
-  const startDate = new Date(this.investmentDate);
+  const startDate = new Date(investmentDate || this.investmentDate);
   const monthlyRate = this.interestRate / 100;
 
   if (this.paymentType === "interest") {
-    return this.generateInterestSchedule(startDate, monthlyRate);
+    return this.generateInterestSchedule(
+      startDate,
+      monthlyRate,
+      requestedTenure
+    );
   } else {
-    return this.generateInterestWithPrincipalSchedule(startDate, monthlyRate);
+    return this.generateInterestWithPrincipalSchedule(
+      startDate,
+      monthlyRate,
+      requestedTenure
+    );
   }
 };
 
 // Generate interest-only schedule
 investmentSchema.methods.generateInterestSchedule = function (
   startDate,
-  monthlyRate
+  monthlyRate,
+  requestedTenure = null
 ) {
   const schedule = [];
   let remainingPrincipal = this.principalAmount;
+  let tenure = requestedTenure || this.tenure;
 
-  for (let month = 1; month <= this.tenure; month++) {
+  for (let month = 1; month <= tenure; month++) {
     const dueDate = new Date(startDate);
     dueDate.setMonth(dueDate.getMonth() + month);
 
@@ -442,7 +455,7 @@ investmentSchema.methods.generateInterestSchedule = function (
 
     // Principal repayment logic would be based on plan configuration
     // For simplicity, principal at the end
-    if (month === this.tenure) {
+    if (month === tenure) {
       principalAmount = remainingPrincipal;
       remainingPrincipal = 0;
     }
@@ -467,15 +480,17 @@ investmentSchema.methods.generateInterestSchedule = function (
 // Generate interest with principal schedule
 investmentSchema.methods.generateInterestWithPrincipalSchedule = function (
   startDate,
-  monthlyRate
+  monthlyRate,
+  requestedTenure = null
 ) {
   const schedule = [];
   let remainingPrincipal = this.principalAmount;
+  let tenure = requestedTenure || this.tenure;
 
   // Simplified: equal principal + interest each month
-  const monthlyPrincipal = this.principalAmount / this.tenure;
+  const monthlyPrincipal = this.principalAmount / tenure;
 
-  for (let month = 1; month <= this.tenure; month++) {
+  for (let month = 1; month <= tenure; month++) {
     const dueDate = new Date(startDate);
     dueDate.setMonth(dueDate.getMonth() + month);
 

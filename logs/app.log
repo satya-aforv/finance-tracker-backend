@@ -1447,3 +1447,6 @@
 {"timestamp":"2025-07-21T12:40:43.254Z","level":"WARN","message":"Client error","requestId":"pmvkbtcp1","method":"GET","url":"/api/auth/me","statusCode":401,"duration":"5ms"}
 {"timestamp":"2025-07-21T17:31:06.595Z","level":"INFO","message":"Received SIGINT, shutting down gracefully..."}
 {"timestamp":"2025-07-21T17:31:06.603Z","level":"INFO","message":"Server closed"}
+{"timestamp":"2025-08-16T05:56:48.242Z","level":"INFO","message":"Server started","port":"5001","env":"development"}
+{"timestamp":"2025-08-16T05:59:04.653Z","level":"INFO","message":"Received SIGINT, shutting down gracefully..."}
+{"timestamp":"2025-08-16T05:59:04.656Z","level":"INFO","message":"Server closed"}
