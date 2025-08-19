@@ -704,7 +704,8 @@ router.post(
         currentRequest.extantionRequestTenure || investment.tenure; // or any number you need
       newDate.setMonth(newDate.getMonth() + monthsToAdd);
 
-      investment.investmentDate = newDate;
+      // investment.investmentDate = newDate;
+      investment.maturityDate = new Date(newDate);
       investment.schedule = investment.generateSchedule(
         newDate,
         currentRequest.extantionRequestTenure
